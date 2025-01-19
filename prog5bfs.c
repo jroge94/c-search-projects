@@ -6,7 +6,7 @@
 #define NUM_NODES 20         // Number of nodes in the graph
 #define MAX_EDGES_PER_NODE 2 // Maximum edges per node
 
-// I did do this is my artificial intelligence class, but in python. 
+
 
 // Node structure
 
