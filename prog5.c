@@ -7,7 +7,6 @@ int counter = 0;
 pthread_mutex_t counter_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /* Timer thread function that increments the counter every second */
-// Very fun assignment. Thank you
 void* timer_thread(void* arg) {
     (void)arg; 
 
