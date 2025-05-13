@@ -1,0 +1,106 @@
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
++ File name   : UTIL_MERGESORT.CB
++ Description : O(n log n) merge-sort for CB arrays (replacement for UTIL_ASORT)
++ Created by  : ChatGPT - drop?in implementation
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+MSORT_SW FORM 1
+    INC COMMON.CB
+
+.#######################################################################
+. MERGE_SORT LROUTINE ARRAY@,NSDX@,TMPIDX@,N,SRTFLD1@,SRTORD1@
++ bottom-up, iterative merge?sort on index array NSDX
++ ARRAY@    CHAR @[,]    ... data array (record or list form)
++ NSDX@     FORM @[]     ... index pointers to ARRAY rows
++ TMPIDX@   FORM @[]     ... temp index workspace
++ N         NUM  @       ... number of elements (AMAX)
++ SRTFLD1@  CHAR  @      ... sort field spec (e.g. "1-8" for rec, or field idx for list)
++ SRTORD1@  CHAR  @      ... 'A' or 'D'
+.-----------------------------------------------------------------------
+    MOVE 1 TO RUN_SIZE
+    LOOP UNTIL RUN_SIZE >= N
+        MOVE 1 TO LEFT
+        LOOP UNTIL LEFT > N
+            CALL MERGE_RUN USING ARRAY@,NSDX@,TMPIDX@,LEFT, \
+                              MIN(LEFT+RUN_SIZE-1,N), \
+                              MIN(LEFT+2*RUN_SIZE-1,N), \
+                              SRTFLD1@,SRTORD1@
+            ADD 2*RUN_SIZE TO LEFT
+        REPEAT
+        ADD RUN_SIZE TO RUN_SIZE
+    REPEAT
+    RETURN
+    ENDROUTINE
+
+.#######################################################################
+. MERGE_RUN LROUTINE ARRAY@,NSDX@,TMPIDX@,L,M,R,SRTFLD1@,SRTORD1@
++ merge two runs [L..M] and [M+1..R]
+.-----------------------------------------------------------------------
+    MOVE L TO i
+    MOVE M+1 TO j
+    MOVE L TO k
+
+    LOOP WHILE (i <= M) AND (j <= R)
+        CALL KEY_OF USING ARRAY@,NSDX@[i],SRTFLD1@,VAL1@
+        CALL KEY_OF USING ARRAY@,NSDX@[j],SRTFLD1@,VAL2@
+        IF ((VAL2@ < VAL1@ AND SRTORD1@ = 'A') OR \
+            (VAL2@ > VAL1@ AND SRTORD1@ = 'D'))
+            MOVE NSDX@[j] TO TMPIDX@[k]
+            ADD 1 TO j
+        ELSE
+            MOVE NSDX@[i] TO TMPIDX@[k]
+            ADD 1 TO i
+        ENDIF
+        ADD 1 TO k
+    REPEAT
+
+    . copy leftovers
+    LOOP WHILE (i <= M)
+        MOVE NSDX@[i] TO TMPIDX@[k]
+        ADD 1 TO i, k
+    REPEAT
+    LOOP WHILE (j <= R)
+        MOVE NSDX@[j] TO TMPIDX@[k]
+        ADD 1 TO j, k
+    REPEAT
+
+    . write back
+    FOR idx FROM L TO R
+        MOVE TMPIDX@[idx] TO NSDX@[idx]
+    REPEAT
+    RETURN
+    ENDROUTINE
+
+.#######################################################################
+. KEY_OF LROUTINE ARRAY@,ROW,SRTFLD@,OUT@
++ extract sort key from ARRAY@[ROW] based on SRTFLD@ spec
++ for rec: "start-end" bytes; for list: single field index
+.-----------------------------------------------------------------------
+    IF (SCAN '-' IN SRTFLD@)
+        . record slice
+        BUMP SRTFLD@ BY -1
+        LENSET SRTFLD@
+        RESET SRTFLD@
+        MOVE (SQUEEZE SRTFLD@) TO startB
+        ENDSET SRTFLD@
+        SETLPTR SRTFLD@
+        BUMP SRTFLD@ BY 2
+        MOVE (SQUEEZE SRTFLD@) TO endB
+        UNPACK ARRAY@[ROW] INTO RECSTR@
+        SETLPTR RECSTR@ TO startB
+        SETLPTR RECSTR@ TO (endB - startB + 1) GIVING OUT@
+    ELSE
+        . list field
+        MOVE FUNCTION OF PARSE_NUM(SRTFLD@) TO fld
+        LOADADR storeL FROM fld OF ARRAY@[ROW]
+        MOVE storeL TO OUT@
+    ENDIF
+    RETURN
+    ENDROUTINE
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
++ Usage: replace calls to "CALL ASORT ..." with
++   CALL MERGE_SORT USING ARRAY=yourData,NSDX=yourIndex,TMPIDX=tempIndex,
++                         N=AMAX,SRTFLD1=SRTFLD1,SRTORD1=SRTORD1
++ Make sure TMPIDX is declared same size as NSDX and zeroed.
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++

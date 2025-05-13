@@ -1,0 +1,107 @@
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
++ File name   : UTIL_EXPLODE_ARRAY.CB
++ Description : Improved EXPLODE?INTO?ARRAY helper (optimised version of
++               original EXPLODE_INTO_ARRAY).  Adds optional MAX_FIELDS@
++               argument so callers can cap the number of fields copied.
++               Falls back to legacy behaviour when MAX_FIELDS@ omitted.
++               ? Only loops over the actual number of fields required
++                 (O(min(NUMFIELDS@,MAX_FIELDS@))).
++               ? Warns at runtime (debug) if a source field truncates
++                 when moved into the destination array slot.
++               ? Clears all passed?by?reference args, incl. new one.
++               ? 100?byte, 999?field hard limits preserved for safety.
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+NEW_EXPLODE_INTO_ARRAY ROUTINE  INDATA@,      ... delimited string to parse
+                                     DELIM@,      ... 1?byte delimiter
+                                     OUTARRAY@,   ... char @[ ] dest array
+                                     OUTCOUNT@,   ... numeric ? #fields returned
+                                     NUMFIELDS@,  ... expected fields in record
+                                     MAX_FIELDS@  ... (optional) upper bound
++ Uses the MCSI "EXPLODE" verb to split INDATA@ and copy up to
++ MIN(NUMFIELDS@, MAX_FIELDS@) elements into OUTARRAY@.  MAX_FIELDS@
++ is optional: when omitted routine behaves like legacy version and
++ copies NUMFIELDS@ (or 999) slots.
++
++ Flags:
++   OVER      ? bad input (multi?byte delimiter, etc.)
++
++ Constraints: each field ? 100 bytes, ? 999 fields total.
+
+INDATA@          CHAR @
+DELIM@           CHAR @
+OUTARRAY@        CHAR @[]
+OUTCOUNT@        NUM  @
+NUMFIELDS@       NUM  @
+MAX_FIELDS@      NUM  @  ... optional (checked with CHECKADR)
+FIELDCNT         NUM  5
+EXPLODE_IDX      NUM  4
+MAXFLDS          NUM  4
+EXPLODE_ARA      CHAR 100[999]
+
+...---------------------------------------------------------------
+... Initialisation
+...---------------------------------------------------------------
+    FILL " " IN OUTARRAY@
+    CLEAR OUTARRAY@,OUTCOUNT@
+
+... Validate delimiter
+    IF (SIZE DELIM@ > 1)
+        debug "DELIM must be 1 byte ? NEW_EXPLODE_INTO_ARRAY"
+        SETFLAG OVER
+        RETURN
+    ENDIF
+
+... Determine cap on #fields to copy ------------------------------------------------
+    CLEAR MAXFLDS
+    CHECKADR MAX_FIELDS@
+    IF NOT OVER
+        MOVE MAX_FIELDS@ TO MAXFLDS
+    ELSE
+        MOVE 999 TO MAXFLDS            ... default cap
+    ENDIF
+
+    MOVE NUMFIELDS@ TO EXPLODE_IDX     ... number passed to EXPLODE
+    IF (EXPLODE_IDX > 999)
+        MOVE 999 TO EXPLODE_IDX        ... safeguard
+    ENDIF
+
+    IF (EXPLODE_IDX > MAXFLDS)
+        MOVE MAXFLDS TO EXPLODE_IDX    ... respect caller cap
+    ENDIF
+
+...---------------------------------------------------------------
+... Call EXPLODE ? fills EXPLODE_ARA[1..EXPLODE_IDX]
+...---------------------------------------------------------------
+    LOADMOD "EXPLODE"
+
+    EXPLODE RECSTR=INDATA@:
+            DELIM=DELIM@:
+            AMAX=EXPLODE_IDX:
+            ARRAY=EXPLODE_ARA
+
+    UNLOAD "EXPLODE"
+
+...---------------------------------------------------------------
+... Copy into caller array (with truncation debug)
+...---------------------------------------------------------------
+    FOR FIELDCNT FROM 1 TO EXPLODE_IDX
+        MOVE EXPLODE_ARA[FIELDCNT] TO OUTARRAY@[FIELDCNT]
+        IF EOS                           ... destination slot too small
+            debug "TRUNCATED field ",FIELDCNT," in NEW_EXPLODE_INTO_ARRAY"
+        ENDIF
+        ADD 1 TO OUTCOUNT@
+    REPEAT
+
+...---------------------------------------------------------------
+... House?keeping
+...---------------------------------------------------------------
+    CLEARADR INDATA@,DELIM@,OUTARRAY@,OUTCOUNT@,NUMFIELDS@,MAX_FIELDS@
+
+    SETFLAG NOT OVER
+    RETURN
+    ENDROUTINE
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
++ End of UTIL_EXPLODE_ARRAY.CB
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++

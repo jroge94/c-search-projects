@@ -1,0 +1,104 @@
+HECK_XREF_PSSN
+CLEAR     MEM_AIM
+PACK      MEM_AIM2 WITH "02X",MEM_PSSN,BLANKS
+
+/* Initialize logging counters */
+MOVE 0 TO CNT_TOTAL_MATCHES
+MOVE 0 TO CNT_NAME_MISMATCH
+MOVE 0 TO CNT_BLANK_DOB
+MOVE 0 TO CNT_NEWBORN_CASE
+
+LOOP
+     IF (FIRST_MEM_READ = "Y")
+          CALL FILE_READ USING
+		  MEM_FD
+		  MEM_FN
+		  MEM_FC M
+		  EM_FV
+		  MEM_AIM
+		  MEM_LIST
+		  MEM_REC
+		  MEM_OLD
+		  MEM_QTY 2
+          MOVE RESULT TO MEM_RESULT
+          MOVE "N" TO FIRST_MEM_READ
+     ELSE
+          CALL FILE_NEXT USING MEM_FD MEM_FN MEM_FC MEM_FV MEM_AIM MEM_LIST MEM_REC MEM_OLD MEM_QTY 2
+          MOVE RESULT TO MEM_RESULT
+     ENDIF
+
+     IF (MEM_RESULT <> 1) BREAK
+     IF (MEM_ID1 = HLD_MEM_ID1) CONTINUE
+
+     /* ---- Core Matching Logic ---- */
+     /* 1. PSSN must match */
+     IF (MEM_PSSN <> HLD_MEM_PSSN) CONTINUE
+
+     /* 2. Handle blank/zero DOB cases */
+     IF (MEM_DOB = ZERO_DATE OR HLD_MEM_DOB = ZERO_DATE)
+          ADD 1 TO CNT_BLANK_DOB
+          /* Optional: Log details for blank DOB cases */
+          PACK LOG_MSG WITH "Blank DOB - MEM1:",HLD_MEM_ID1," MEM2:",MEM_ID1
+          CALL LOG_MESSAGE USING LOG_MSG
+          CONTINUE /* Skip if either DOB is blank */
+     ENDIF
+
+     /* 3. Primary match case (PSSN + DOB) */
+     IF (MEM_DOB = HLD_MEM_DOB)
+          ADD 1 TO CNT_TOTAL_MATCHES
+
+          /* Log name mismatches for monitoring */
+          SETLPTR MEM_FNAME TO LPTR
+          MATCH HLD_MEM_FNME TO MEM_FNAME
+          IF (NOT EQUAL)
+               ADD 1 TO CNT_NAME_MISMATCH
+               PACK LOG_MSG WITH "Name mismatch - MEM1:",HLD_MEM_ID1,"(",HLD_MEM_FNME,") MEM2:",MEM_ID1,"(",MEM_FNAME,")"
+               CALL LOG_MESSAGE USING LOG_MSG
+          ENDIF
+
+          GOTO PROCESS_MATCH
+     ENDIF
+
+     /* 4. Newborn exception case (optional) */
+     COMPUTE AGE_IN_DAYS = (TODAY - MEM_DOB)
+     IF (AGE_IN_DAYS < 730) /* Approximately 2 years */
+          ADD 1 TO CNT_NEWBORN_CASE
+          PACK LOG_MSG WITH "Newborn case - MEM1:",HLD_MEM_ID1," MEM2:",MEM_ID1," Age:",AGE_IN_DAYS,"days"
+          CALL LOG_MESSAGE USING LOG_MSG
+          GOTO PROCESS_MATCH
+     ENDIF
+
+     CONTINUE /* No match found */
+
+     /* ---- Match Processing ---- */
+     PROCESS_MATCH:
+     /* Skip if already linked */
+     PACK MEME_FK11 WITH MEM_ID1,BLANKS
+     CALL FILE_READ USING MEME_FD MEME_FN MEME_FC MEME_FV MEME_FK MEME_LIST MEME_REC MEME_OLD MEME_QTY 1
+     LOOP
+          CALL FILE_NEXT USING MEME_FD MEME_FN MEME_FC MEME_FV MEME_FK MEME_LIST MEME_REC MEME_OLD MEME_QTY 1
+          MOVE RESULT TO MEME_RESULT
+          BREAK IF ((MEM_ID1 <> MEME_ID1) OR (MEME_RESULT <> 1))
+          CONTINUE IF (SQUEEZE MEME_NET = "LIFE")
+          CONTINUE IF (SQUEEZE MEME_NET = "NOCOV")
+          BREAK IF ((MEM_ID1 = HLD_SHA_ACC) OR (MEM_ACCU = MEME_WRK_ID1) OR (SQUEEZE MEM_ACCU <> ""))
+     REPEAT
+
+     IF (USE_EXCLUSIONS)
+          CLEAR XREF_ELM_KEY
+          PACK XREF_ELM_KEY WITH MEM_ID1,HLD_MEM_ID1
+          CALL READ_OGBFILE_IX USING XREF_ELM_FD XREF_ELM_NAME XREF_ELM_KEY XREF_ELM_LIST
+          IF (RESULT = 1)
+               CALL UTIL_XCOUNTER USING X_CNT3,1
+               BREAK
+          ENDIF
+     ENDIF
+
+     CALL WRITE_OUTPUT
+REPEAT
+
+/* Final logging */
+PACK LOG_MSG WITH "XREF Summary - Total:",CNT_TOTAL_MATCHES," NameMismatch:",CNT_NAME_MISMATCH," BlankDOB:",CNT_BLANK_DOB," Newborns:",CNT_NEWBORN_CASE
+CALL LOG_MESSAGE USING LOG_MSG
+
+RETURN

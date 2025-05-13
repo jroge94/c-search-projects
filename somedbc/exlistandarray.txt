@@ -1,0 +1,60 @@
+EXPLODE_INTO_LIST ROUTINE           &
+        INDATA@          ,          &  ...delimited record
+        DELIM@           ,          &  ...single-byte delimiter
+        OUTLIST@         ,          &  ...destination LIST
+        NUMFIELDS@       ,          &  ...how many list elements exist
+        MAX_FIELDS@           ...OPTIONAL: cap the loop
+
+INDATA@       CHAR   @
+DELIM@        CHAR   @
+OUTLIST@      LIST   @
+NUMFIELDS@    NUM    @
+MAX_FIELDS@   NUM    @
+TMP_ARA       CHAR   100[999]
+FIELDCNT      NUM    5
+COPYLIMIT     NUM    5
+...
+* ÄÄ initialise ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ *
+    FILL " " IN OUTLIST@
+    CLEAR OUTLIST@
+
+* ÄÄ sanity checks ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ *
+    IF (SIZE DELIM@ > 1)
+        debug ."EXPLODE_INTO_LIST ? delimiter must be one byte"
+        SETFLAG OVER
+        RETURN
+    ENDIF
+
+* ÄÄ decide how many fields we **intend** to copy ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ *
+    MOVE NUMFIELDS@ TO COPYLIMIT
+    CHECKADR MAX_FIELDS@
+    IF NOT OVER
+        IF (MAX_FIELDS@ < COPYLIMIT)
+            MOVE MAX_FIELDS@ TO COPYLIMIT
+        ENDIF
+    ENDIF                       ...else COPYLIMIT stays NUMFIELDS@
+
+* ÄÄ explode the record (same EXPLODE mod) ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ *
+    LOADMOD "EXPLODE"
+    EXPLODE RECSTR=INDATA@ :
+            DELIM=DELIM@  :
+            AMAX=COPYLIMIT:
+            ARRAY=TMP_ARA :
+            RLIST=OUTLIST@
+    UNLOAD "EXPLODE"
+
+* ÄÄ copy into the caller?s list ? watch for truncation ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ *
+    FOR FIELDCNT FROM 1 TO COPYLIMIT
+        SETFLAG NOT OVER
+        STORE TMP_ARA[FIELDCNT] TO FIELDCNT OF OUTLIST@
+        IF OVER
+            debug ."EXPLODE_INTO_LIST ? element "&FIELDCNT&
+                  " truncated (?"&TMP_ARA[FIELDCNT]&"??)"
+        ENDIF
+    REPEAT
+
+* ÄÄ tidy up and return ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ *
+    CLEARADR INDATA@, DELIM@, OUTLIST@, NUMFIELDS@, MAX_FIELDS@
+    SETFLAG NOT OVER
+    RETURN
+ENDROUTINE
